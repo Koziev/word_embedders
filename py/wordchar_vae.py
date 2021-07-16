@@ -257,121 +257,64 @@ if __name__ == '__main__':
     data_dir = '../data'
     save_dir = '../tmp/wordchar_vae'
 
-    scenario = 'test'
+    batch_size = 256
 
-    if scenario == 'train':
-        batch_size = 256
+    params = dict()
+    params['batch_size'] = batch_size
 
-        params = dict()
-        params['batch_size'] = batch_size
+    computed_params = dict()
 
-        computed_params = dict()
+    dataset_path = os.path.join(data_dir, 'words.txt')
 
-        dataset_path = os.path.join(data_dir, 'words.txt')
+    with io.open(dataset_path, 'r', encoding='utf-8') as rdr:
+        words = [l.strip() for l in rdr]
 
-        with io.open(dataset_path, 'r', encoding='utf-8') as rdr:
-            words = [l.strip() for l in rdr]
+    max_len = max(map(len, words)) + 2  # два граничных маркера
+    computed_params['max_len'] = max_len
 
-        max_len = max(map(len, words)) + 2  # два граничных маркера
-        computed_params['max_len'] = max_len
+    all_chars = set()
+    for word in words:
+        all_chars.update(word)
 
-        all_chars = set()
-        for word in words:
-            all_chars.update(word)
+    ctoi = dict((c, i) for i, c in enumerate(all_chars, start=3))
+    ctoi[FILLER_CHAR] = 0
+    ctoi[BEG_CHAR] = 1
+    ctoi[END_CHAR] = 2
 
-        ctoi = dict((c, i) for i, c in enumerate(all_chars, start=3))
-        ctoi[FILLER_CHAR] = 0
-        ctoi[BEG_CHAR] = 1
-        ctoi[END_CHAR] = 2
+    X = np.zeros((len(words), max_len), dtype=np.int)
+    for irow, word in enumerate(words):
+        word2 = BEG_CHAR + word + END_CHAR
+        for ichar, c in enumerate(word2):
+            X[irow, ichar] = ctoi[c]
 
-        X = np.zeros((len(words), max_len), dtype=np.int)
-        for irow, word in enumerate(words):
-            word2 = BEG_CHAR + word + END_CHAR
-            for ichar, c in enumerate(word2):
-                X[irow, ichar] = ctoi[c]
+    X_train, X_viz, samples_train, samples_viz = train_test_split(X, words, test_size=10*batch_size)
 
-        X_train, X_viz, samples_train, samples_viz = train_test_split(X, words, test_size=10*batch_size)
+    computed_params['nb_chars'] = max(ctoi.values()) + 1
+    computed_params['ctoi'] = ctoi
 
-        computed_params['nb_chars'] = max(ctoi.values()) + 1
-        computed_params['ctoi'] = ctoi
+    params['latent_dim'] = 64
+    params['char_dim'] = 64
 
-        params['latent_dim'] = 64
-        params['char_dim'] = 64
+    vae = create_model(params, computed_params)
 
-        vae = create_model(params, computed_params)
+    visualizer = VisualizeCallback(X_viz, samples_viz, vae, computed_params, save_dir)
 
-        visualizer = VisualizeCallback(X_viz, samples_viz, vae, computed_params, save_dir)
+    print('Start training VAE on {} samples...'.format(X_train.shape[0]))
+    vae.fit(X_train,
+            epochs=100,
+            verbose=2,
+            batch_size=params['batch_size'],
+            callbacks=[visualizer],
+            )
 
-        print('Start training VAE on {} samples...'.format(X_train.shape[0]))
-        vae.fit(X_train,
-                epochs=100,
-                verbose=2,
-                batch_size=params['batch_size'],
-                callbacks=[visualizer],
-                )
+    # Сохраняем части модели для инференса.
+    with open(os.path.join(save_dir, 'wordchar_vae.encoder.arch'), 'w') as f:
+        f.write(vae.encoder.to_json())
 
-        # Сохраняем части модели для инференса.
-        with open(os.path.join(save_dir, 'wordchar_vae.encoder.arch'), 'w') as f:
-            f.write(vae.encoder.to_json())
+    with open(os.path.join(save_dir, 'wordchar_vae.decoder.arch'), 'w') as f:
+        f.write(vae.decoder.to_json())
 
-        #vae.encoder.save_weights(os.path.join(save_dir, 'wordchar_vae.encoder.weights'))
+    with open(os.path.join(save_dir, 'wordchar_vae.config'), 'wb') as f:
+        pickle.dump({**params, **computed_params}, f)
 
-        with open(os.path.join(save_dir, 'wordchar_vae.decoder.arch'), 'w') as f:
-            f.write(vae.decoder.to_json())
-
-        #vae.decoder.save_weights(os.path.join(save_dir, 'wordchar_vae.decoder.weights'))
-
-        with open(os.path.join(save_dir, 'wordchar_vae.config'), 'wb') as f:
-            pickle.dump({**params, **computed_params}, f)
-
-        exit(0)
-
-    if scenario == 'test':
-        with open(os.path.join(save_dir, 'wordchar_vae.config'), 'rb') as f:
-            cfg = pickle.load(f)
-
-        with open(os.path.join(save_dir, 'wordchar_vae.encoder.arch'), 'rb') as f:
-            encoder = model_from_json(f.read(), custom_objects={'Sampling': Sampling})
-
-        encoder.load_weights(os.path.join(save_dir, 'wordchar_vae.encoder.weights'))
-
-        with open(os.path.join(save_dir, 'wordchar_vae.decoder.arch'), 'rb') as f:
-            decoder = model_from_json(f.read())
-
-        decoder.load_weights(os.path.join(save_dir, 'wordchar_vae.decoder.weights'))
-
-        samples = ['муха', 'слон']
-        max_len = cfg['max_len']
-        ctoi = cfg['ctoi']
-        itoc = dict((i, c) for c, i in ctoi.items())
-        data = np.zeros((len(samples), max_len), dtype=np.int)
-        for isample, sample in enumerate(samples):
-            cx = [BEG_CHAR] + list(sample) + [END_CHAR]
-            for ichar, char in enumerate(cx):
-                data[isample, ichar] = ctoi[char]
-
-        z_mean, _, _ = encoder(data)
-        word_vs = z_mean.numpy()
-
-        v1 = word_vs[0]
-        v2 = word_vs[1]
-
-        # 1) вариация одного измерения в векторе первого слова
-        print('\nVarying a component:')
-        for xi in np.linspace(-1.0, 1.0, 10):
-            v11 = np.copy(v1)
-            v11[50] = xi
-            s = decode_vector(decoder, v11, itoc)
-            print('xi={} word={}'.format(xi, s))
-
-        # 2) интерполяция между векторами двух слов
-        print('\nInterpolation:')
-        last_s = ''
-        for k in np.linspace(0.0, 1.0, 10):
-            v = (1.0-k)*v1 + k*v2
-            s = decode_vector(decoder, v, itoc)
-            if s != last_s:
-                last_s = s
-                print(s)
-
-        exit(0)
+    exit(0)
