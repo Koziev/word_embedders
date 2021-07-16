@@ -1,0 +1,2 @@
+model_checkpoint_path: "wordchar_vae.decoder.weights"
+all_model_checkpoint_paths: "wordchar_vae.decoder.weights"
