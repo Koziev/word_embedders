@@ -59,7 +59,7 @@ class WordCharEmbedder:
         self.decoder.load_weights(os.path.join(model_dir, 'wordchar2vector.decoder.model'))
 
     def encode_word(self, word):
-        """ Преобразование единственного слова в векторы """
+        """ Преобразование единственного слова в вектор """
         x = np.zeros((1, self.config['seq_len']))
         for i, c in enumerate([BEG_CHAR] + list(word) + [END_CHAR]):
             x[0, i] = self.ctoi[c]
@@ -140,7 +140,6 @@ def tokenize(text):
 
 if __name__ == '__main__':
     data_dir = '../data'
-    input_path = os.path.join(data_dir, 'words.txt')
     tmp_dir = '../tmp'
     model_dir = tmp_dir
 
