@@ -363,8 +363,8 @@ class VisualizeCallback(keras.callbacks.Callback):
             true_word = unpad_word(self.decode_char_indeces(self.y_test[i]))
             pred_word = unpad_word(self.decode_char_indeces(y_pred[i, :, :].argmax(axis=-1)))
 
+            length_hits.append(len(true_word) == len(pred_word))
             if len(true_word) >= 4 and len(pred_word) >= 4:
-                length_hits.append(len(true_word) == len(pred_word))
                 first_char_hits.append(true_word[0] == pred_word[0])
                 second_char_hits.append(true_word[1] == pred_word[1])
                 last1_char_hits.append(true_word[-2] == pred_word[-2])

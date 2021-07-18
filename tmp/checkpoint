@@ -1,2 +1,0 @@
-model_checkpoint_path: "wordchar2vector.decoder.model"
-all_model_checkpoint_paths: "wordchar2vector.decoder.model"

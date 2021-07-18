@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Тренировка модели для превращения символьной цепочки слова в вектор действительных чисел фиксированной длины.
 
@@ -17,7 +16,6 @@ import absl.logging  # https://github.com/tensorflow/tensorflow/issues/26691
 import colorama
 import coloredlogs
 import terminaltables
-import tqdm
 
 from sklearn.model_selection import train_test_split
 import sklearn.metrics
@@ -31,7 +29,6 @@ from keras.layers import Dense, Input
 from keras.layers import Conv1D, GlobalAveragePooling1D
 from keras.layers import TimeDistributed
 from keras.models import Model
-from keras.models import model_from_json
 
 
 FILLER_CHAR = ' '  # символ для выравнивания слов по одинаковой длине
@@ -316,8 +313,8 @@ class VisualizeCallback(keras.callbacks.Callback):
         self.wait = 0  # для early stopping по критерию общей точности
         self.stopped_epoch = 0
         self.patience = 20
-        if os.path.exists(self.learning_curve_filename):
-            os.remove(self.learning_curve_filename)
+        with io.open(learning_curve_filename, 'wt', encoding='utf-8') as wrt:
+            wrt.write('epoch\tword_acc\tlength_acc\tfirst_char_acc\tsecond_char_acc\tlast_but_1_char_acc\tlast_char_acc\n')
 
     def decode_char_indeces(self, char_indeces):
         return ''.join([self.index2char[c] for c in char_indeces]).strip()
@@ -330,9 +327,24 @@ class VisualizeCallback(keras.callbacks.Callback):
         y_pred = self.model.predict(self.X_test, verbose=0)
 
         viztable = ['accuracy true_word reconstructed_word'.split()]
+
+        # расчет точности восстановления первого, второго, предпоследнего и последнего символа.
+        first_char_hits = []
+        second_char_hits = []
+        last1_char_hits = []
+        last_char_hits = []
+        length_hits = []
+
         for i in np.random.permutation(np.arange(self.X_test.shape[0])):
             true_word = unpad_word(self.decode_char_indeces(self.y_test[i]))
             pred_word = unpad_word(self.decode_char_indeces(y_pred[i, :, :].argmax(axis=-1)))
+
+            length_hits.append(len(true_word) == len(pred_word))
+            if len(true_word) >= 4 and len(pred_word) >= 4:
+                first_char_hits.append(true_word[0] == pred_word[0])
+                second_char_hits.append(true_word[1] == pred_word[1])
+                last1_char_hits.append(true_word[-2] == pred_word[-2])
+                last_char_hits.append(true_word[-1] == pred_word[-1])
 
             if len(viztable) < 10:
                 hit = true_word == pred_word
@@ -350,8 +362,15 @@ class VisualizeCallback(keras.callbacks.Callback):
 
         val_acc = float(nb_samples - nb_errors) / nb_samples
 
-        with open(self.learning_curve_filename, 'a') as wrt:
-            wrt.write('{}\t{}\n'.format(self.epoch, val_acc))
+        # Всякие прикольные метрики, которые будем смотреть в динамике обучения - точность реконструкции длины,
+        # точность первого символа, точность второго символа и т.д.
+        length_acc = np.mean(length_hits)
+        first_char_acc = np.mean(first_char_hits)
+        second_char_acc = np.mean(second_char_hits)
+        last1_char_acc = np.mean(last1_char_hits)
+        last_char_acc = np.mean(last_char_hits)
+        with io.open(self.learning_curve_filename, 'at', encoding='utf-8') as wrt:
+            wrt.write('{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format(self.epoch, val_acc, length_acc, first_char_acc, second_char_acc, last1_char_acc, last_char_acc))
 
         if val_acc > self.best_val_acc:
             print_green_line('\nInstance accuracy improved from {} to {}, saving model to {}\n'.format(self.best_val_acc, val_acc, self.weights_path))
@@ -398,7 +417,7 @@ class Wordchar2Vector_Trainer(object):
         with io.open(words_filepath, 'r', encoding='utf-8') as rdr:
             return set([line.strip() for line in rdr])
 
-    def train(self, words_filepath, tmp_dir, nb_samples=100000000):
+    def train(self, words_filepath, save_dir):
         """
         Тренируем модель на словах в указанном файле words_filepath.
 
@@ -462,10 +481,7 @@ class Wordchar2Vector_Trainer(object):
         X_train, y_train = vectorize_data(train_words, char2index, seq_len)
         X_val, y_val = vectorize_data(val_words, char2index, seq_len)
 
-        learning_curve_filename = os.path.join(tmp_dir,
-                                               'learning_curve__{}_vecsize={}_tunable_char_embeddings={}_chardims={}_batchsize={}.csv'.format(
-                                                   self.arch_type, self.vec_size, self.tunable_char_embeddings,
-                                                   self.char_dims, self.batch_size))
+        learning_curve_filename = os.path.join(save_dir, 'learning_curve.tsv')
         visualizer = VisualizeCallback(X_val, y_val, model, index2char, weigths_path, learning_curve_filename)
 
         batch_size = self.batch_size
@@ -473,7 +489,7 @@ class Wordchar2Vector_Trainer(object):
         visualizer.new_epochs()
         hist = model.fit(x=X_train, y=y_train,
                          batch_size=batch_size,
-                         epochs=20,
+                         epochs=1000,
                          verbose=1,
                          callbacks=[visualizer],  # csv_logger, model_checkpoint, early_stopping],
                          validation_data=(X_val, y_val),
@@ -539,7 +555,7 @@ if __name__ == '__main__':
     data_dir = '../data'
     input_path = os.path.join(data_dir, 'words.txt')
     tmp_dir = '../tmp'
-    model_dir = tmp_dir
+    model_dir = os.path.join(tmp_dir, 'simple_autoencoder')
 
     vec_size = 56
     char_dims = 0
@@ -557,6 +573,6 @@ if __name__ == '__main__':
                                       vec_size,
                                       batch_size)
 
-    trainer.train(input_path, tmp_dir)
+    trainer.train(input_path, model_dir)
 
     logging.info('Done.')
