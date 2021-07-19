@@ -141,7 +141,7 @@ def tokenize(text):
 if __name__ == '__main__':
     data_dir = '../data'
     tmp_dir = '../tmp'
-    model_dir = tmp_dir
+    model_dir = '../tmp/multitarget_simple_autoencoder'
 
     # Эксперименты с натренированной моделью
     we = WordCharEmbedder()
